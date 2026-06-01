@@ -1,0 +1,28 @@
+# Vivado 工程生成目录
+*.runs/
+*.cache/
+*.ip_user_files/
+*.sim/
+*.hw/
+*.jou
+*.log
+*.str
+*.webtalk
+*.xpr
+
+# 临时文件
+*.vcd
+*.fsdb
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 排除整个 ip 目录（包括所有子文件）
+**/ip/
+
+# 忽略 UART.srcs/ 目录下的所有内容
+UART.srcs/*
+# 但保留 sim_1 和 sources_1 这两个文件夹（以及它们里面的内容）
+!UART.srcs/sim_1/
+!UART.srcs/sources_1/
