@@ -29,27 +29,37 @@ always @(*) begin
 end
 
 
-// 生成16倍波特率时钟
+// 生成16倍波特率时钟（脉冲方式，不是翻转）
 always @(posedge Clock or posedge Reset) begin
     if(Reset) begin
         Count <= 12'b0;
         Bclk16 <= 1'b0;
-    end else if(Count == Division -1) begin
+    end else if(Count == Division - 1) begin
         Count <= 12'b0;
-        Bclk16 <= ~Bclk16;
-    end else Count <= Count + 1;
+        Bclk16 <= 1'b1;   // 产生一个时钟周期的高脉冲
+    end else begin
+        Count <= Count + 1;
+        Bclk16 <= 1'b0;
+    end
 end
 
 
-//从16倍时钟中生成标准波特率时钟
-always @(posedge Bclk16 or posedge Reset) begin
+//从16倍时钟中生成标准波特率时钟（脉冲方式）
+always @(posedge Clock or posedge Reset) begin
     if(Reset) begin
         Bclk <= 1'b0;
         BclkCount <= 4'b0;
-    end else if(BclkCount == 4'b0111) begin
-        BclkCount <= 4'b0;
-        Bclk <= ~Bclk;
-    end else BclkCount <= BclkCount + 1;
+    end else if(Bclk16) begin
+        if(BclkCount == 4'd15) begin
+            BclkCount <= 4'b0;
+            Bclk <= 1'b1;  // 产生一个时钟周期的高脉冲
+        end else begin
+            BclkCount <= BclkCount + 1;
+            Bclk <= 1'b0;
+        end
+    end else begin
+        Bclk <= 1'b0;
+    end
 end
 
 endmodule

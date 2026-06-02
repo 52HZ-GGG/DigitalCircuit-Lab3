@@ -8,7 +8,6 @@ module uart_loopback #(
     input RxD
 );
 
-wire Baud, Baud16;
 wire Din_Ready, Dout_Valid;
 wire [7:0] Dout;
 reg [7:0] Din;
@@ -21,12 +20,10 @@ parameter Receive = 1'b0,
             Transmit = 1'b1;
 
 
-UART #(.SYS_FREQ(SYS_FREQ)) 
+UART #(.SYS_FREQ(SYS_FREQ))
     uart (
     .Clock(Clock),
     .Reset(Reset),
-    .Baud(Baud),
-    .Baud16(Baud16),
     .Din(Din),
     .Dout(Dout),
     .Din_Valid(Din_Valid),
@@ -62,11 +59,11 @@ always @(posedge Clock or posedge Reset) begin
     end else case (state)
         Receive: begin
             latched <= 0;
-        end 
+        end
         Transmit: begin
-            if(latched) begin 
+            if(latched) begin
                 latched <= 1;
-            end else if(Din_Ready) latched <= 1;
+            end else if(!Din_Ready) latched <= 1;  // 发射器接手后置1
         end
         default: begin
             latched <= 0;
@@ -83,9 +80,9 @@ always @(posedge Clock or posedge Reset) begin
         Receive: begin
             Din_Valid <= 1'b0;
             Dout_Ready <= 1'b0;
-        end 
+        end
         Transmit: begin
-            if(latched) begin 
+            if(latched) begin
                 Din_Valid <= 1'b0;
                 Dout_Ready <= 1'b1;
             end else if(Din_Ready) begin
@@ -106,6 +103,7 @@ end
 always @(posedge Clock or posedge Reset) begin
     if(Reset) begin
         Din <= 8'b0;
+        latched_data <= 8'b0;
     end else case (state)
         Receive: begin
             Din <= 8'b0;
@@ -117,13 +115,12 @@ always @(posedge Clock or posedge Reset) begin
             end else if(latched_data <= 8'b01011010 && latched_data >= 8'b01000001) begin
                 Din <= latched_data + 32;
             end else Din <= latched_data;
-            end
+        end
         default: begin
             Din <= 8'b0;
             if(Dout_Valid) latched_data <= Dout;
         end
     endcase
-    
 end
 
 endmodule
