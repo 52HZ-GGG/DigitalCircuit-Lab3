@@ -10,9 +10,11 @@
 *.webtalk
 *.xpr
 
-# 临时文件
+# 仿真临时文件
 *.vcd
 *.fsdb
+*.vvp
+icarus/
 
 # 操作系统
 .DS_Store
