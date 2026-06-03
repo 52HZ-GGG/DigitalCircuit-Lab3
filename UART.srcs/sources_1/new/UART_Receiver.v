@@ -1,108 +1,90 @@
 `timescale 1ns / 1ps
-
+// 接收器：Bclk16过采样，在bit中心采样
+// 解决原始接收器因StartDetect延迟导致的采样偏移问题
 module UART_Receiver (
-    input BaudClock,      //Baud clock = 16x baud rate
-    input Reset,          //system reset
-    input RxD,            //receive data input
-    input Ready,          //read pulse for Dout
-    output [7:0] Dout,    //received data out
-    output reg Valid,     //received data ready to read
-    output reg RxParityErr //received parity error
+    input BaudClock,      // Bclk16 = 16x baud rate（DDS精确生成）
+    input Reset,
+    input RxD,
+    input Ready,
+    output [7:0] Dout,
+    output reg Valid,
+    output reg RxParityErr
 );
 
-reg [3:0] BaudCount;     //divide baud clock by 16
-wire BaudRate;           //baud rate clock
-reg [2:0] Rcnt;          //receive bit count
-reg [7:0] Rreg;          //receive shift register
-reg [7:0] Rbuf;          //receive buffer register
-reg RparBit;             //receive parity bit
-wire StartDetect;        //start bit detected flag
-reg [3:0] Rstate;        //receiver state
-reg [3:0] StartState;    //start detection state
+reg [3:0] bit_cnt;       // bit内计数 0~15（16个Bclk16=1个bit周期）
+reg [3:0] Rcnt;          // 已收数据位 0~8
+reg [7:0] Rreg;          // 接收寄存器
+reg RparBit;             // 校验累积
+reg RxD_prev;            // 用于下降沿检测
+reg [1:0] state;         // 0=idle, 1=data, 2=parity, 3=stop
 
-parameter Ridle   = 4'b0001,
-          Rshift  = 4'b0010,
-          Rparity = 4'b0100,
-          Rstop   = 4'b1000;
+wire falling_edge = RxD_prev && !RxD;
+wire bit_sample   = (bit_cnt == 4'd8);  // bit中心（第8个Bclk16）
 
-parameter Start0 = 4'b0001,
-          Start1 = 4'b0010,
-          Start2 = 4'b0100,
-          Start3 = 4'b1000;
+initial begin Rreg=8'h00; state=0; end
 
-initial Rreg = 8'h00;    //for simulation
-
-//Baud rate is BaudClock / 16
-always @(posedge Reset or posedge BaudClock)
-    if (Reset)
-        BaudCount <= 4'b0000;
-    else
-        BaudCount <= BaudCount + 1;
-
-assign BaudRate = BaudCount[3];
-
-//Start bit detection and baud clock divider
-always @(posedge Reset or posedge BaudClock) begin
-    if (Reset)
-        StartState <= Start0;  //search for start bit
-    else
-        case (StartState)
-            Start0: if (RxD == 1'b0) StartState <= Start1;  //start bit detected
-            Start1: if (RxD == 1'b1) StartState <= Start0;  //false start bit
-                    else if (BaudCount == 4'b0111) StartState <= Start2;  //8 Baud16 ticks
-            Start2: if (Rstate[1] == 1'b1) StartState <= Start3;  //Cancel StartDetect
-            Start3: if (Rstate[0] == 1'b1) StartState <= Start0;  //start over in idle
-        endcase
+always @(posedge BaudClock or posedge Reset) begin
+    if (Reset) RxD_prev <= 1;
+    else RxD_prev <= RxD;
 end
 
-assign StartDetect = StartState[2];
-
-//Receive shift register
-always @(posedge BaudRate)
-    if (Rstate[1])
-        Rreg <= {RxD, Rreg[7:1]};  //shift receive data
-
-//Receive parity calculation
-always @(posedge StartDetect or posedge BaudRate)  //trigger with baud rate clock
-    if (StartDetect) begin
-        RparBit <= 1'b0;      //reset parity bit
-        RxParityErr <= 1'b0;  //reset parity error flag
-    end
-    else if (Rstate[1])
-        RparBit <= RparBit ^ RxD;  //calculate parity
-
-//Received data on outputs
-always @(posedge Reset or posedge BaudRate)
+// bit计数器：起始位下降沿时同步，之后每16个Bclk16=1个bit
+always @(posedge BaudClock or posedge Reset) begin
     if (Reset)
-        Valid <= 1'b0;
-    else if (Rstate == Rstop)
-        Valid <= 1'b1;
-    else if (Ready)
-        Valid <= 1'b0;
+        bit_cnt <= 0;
+    else if (falling_edge && state==0)
+        bit_cnt <= 0;  // 起始位下降沿：同步
+    else if (bit_cnt == 4'd15)
+        bit_cnt <= 0;
+    else
+        bit_cnt <= bit_cnt + 1;
+end
+
+// 主状态机 + 移位（合并，消除竞态）
+always @(posedge BaudClock or posedge Reset) begin
+    if (Reset) begin
+        state <= 0;
+        Rcnt <= 0;
+        Rreg <= 0;
+        RparBit <= 0;
+        RxParityErr <= 0;
+        Valid <= 0;
+    end else begin
+        // Valid由Ready清除
+        if (Ready) Valid <= 0;
+
+        if (bit_sample) begin  // 仅在bit中心操作
+            case (state)
+            0: begin // idle：bit_cnt==8时应处于起始位中心，确认RxD==0
+                if (!RxD) begin
+                    state <= 1;
+                    Rcnt <= 0;
+                    RparBit <= 0;
+                    RxParityErr <= 0;
+                end
+            end
+
+            1: begin // data：采集D0~D7
+                Rreg <= {RxD, Rreg[7:1]};
+                RparBit <= RparBit ^ RxD;
+                if (Rcnt == 7) state <= 2;  // 下一个是校验位
+                Rcnt <= Rcnt + 1;
+            end
+
+            2: begin // parity：检查校验位
+                if (RxD != RparBit) RxParityErr <= 1;
+                state <= 3;
+            end
+
+            3: begin // stop：输出数据
+                Valid <= 1;
+                state <= 0;
+            end
+            endcase
+        end
+    end
+end
 
 assign Dout = Rreg;
-
-//Receive controller
-always @(posedge Reset or posedge BaudRate) begin
-    if (Reset)
-        Rstate <= Ridle;  //reset to initial state
-    else
-        case (Rstate)
-            Ridle: if (StartDetect == 1'b1) begin
-                       Rstate <= Rshift;  //shift after start detected
-                       Rcnt <= 3'b000;    //reset bit counter
-                   end
-            Rshift: if (Rcnt == 3'b111)
-                        Rstate <= Rparity;  //parity state after 8 bits
-                    else
-                        Rcnt <= Rcnt + 1;   //increment bit count
-            Rparity: begin
-                         Rstate <= Rstop;
-                         if (RxD != RparBit)
-                             RxParityErr <= 1;
-                     end
-            Rstop: Rstate <= Ridle;
-        endcase
-end
 
 endmodule

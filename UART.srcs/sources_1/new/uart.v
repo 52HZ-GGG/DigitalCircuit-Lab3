@@ -32,7 +32,8 @@ UART_Receiver RX (
     .Dout(Dout),         //receive data out
     .Ready(Dout_Ready),  //read pulse for Dout
     .RxD(RxD),           //receive data input
-    .Valid(Dout_Valid)   //received data ready to read
+    .Valid(Dout_Valid),  //received data ready to read
+    .RxParityErr()       //parity error (未使用)
 );
 
 endmodule

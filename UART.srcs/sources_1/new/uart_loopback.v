@@ -2,18 +2,24 @@ module uart_loopback #(
     parameter SYS_FREQ = 100_000_000
 )(
     input Clock,
-    input Reset,
+    input Reset,        
     input [3:0] freq_ctrl,
     output TxD,
-    input RxD
+    input RxD,
+    output [15:0] LEDS        // 调试LED: [15:8]=收到的原始数据, [7:0]=转换后的数据
 );
 
 wire Din_Ready, Dout_Valid;
 wire [7:0] Dout;
 reg [7:0] Din;
 reg Din_Valid, Dout_Ready;
+
+// 接收器输出（原始数据）
 reg latched;
 reg [7:0] latched_data;
+wire [7:0] converted_data;  // 组合逻辑：实时大小写转换结果
+
+// 接收器已修复，Dout直接包含正确数据
 
 reg  state;
 parameter Receive = 1'b0,
@@ -24,6 +30,8 @@ UART #(.SYS_FREQ(SYS_FREQ))
     uart (
     .Clock(Clock),
     .Reset(Reset),
+    .Baud(),              //未使用
+    .Baud16(),            //未使�?
     .Din(Din),
     .Dout(Dout),
     .Din_Valid(Din_Valid),
@@ -123,4 +131,12 @@ always @(posedge Clock or posedge Reset) begin
     endcase
 end
 
+// 组合逻辑：实时大小写转换（与数据处理逻辑一致，但不依赖状态机）
+assign converted_data = (latched_data <= 8'h7A && latched_data >= 8'h61) ? latched_data - 8'd32 :
+                        (latched_data <= 8'h5A && latched_data >= 8'h41) ? latched_data + 8'd32 :
+                        latched_data;
+
+// LED输出：始终常亮
+assign LEDS[15:8] = latched_data;    // LD15~LD8: 收到的原始数据
+assign LEDS[7:0]  = converted_data;  // LD7~LD0:  转换后的数据
 endmodule
