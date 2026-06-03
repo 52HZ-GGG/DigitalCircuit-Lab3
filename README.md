@@ -21,6 +21,7 @@
 UART/
 ├── README.md                           # 本文件
 ├── serial_debug.py                     # Python 串口测试脚本
+├── .gitignore                          # Git 忽略规则
 ├── UART.srcs/
 │   ├── sources_1/new/                  # 设计源文件
 │   │   ├── UART_BaudGen.v              # 波特率生成器
@@ -31,9 +32,11 @@ UART/
 │   ├── constrs_1/new/                  # 约束文件
 │   │   └── basys3.xdc                  # Basys3 引脚约束
 │   └── sim_1/new/                      # 仿真测试文件
-│       ├── echo_tb.v                   # 回环功能仿真测试
-│       └── uart2uart_tb.v              # 双向通信仿真测试
-└── serial_test.py                      # 备用测试脚本
+│       ├── echo_tb.v                   # 回环功能仿真测试（大小写转换 + 单bit验证）
+│       ├── uart2uart_tb.v              # 双向通信仿真测试（含双工模式）
+│       ├── comprehensive_echo_tb.v     # 综合回环测试
+│       ├── UART_BaudGen_tb.v           # 波特率生成器仿真
+│       └── uart_transmitter_tb.v       # 发射器仿真
 ```
 
 ## 功能说明
@@ -102,7 +105,7 @@ UART/
 
 在 Flow Navigator 中点击 **Run Simulation → Run Behavioral Simulation**，选择测试文件观察波形。
 
-使用命令行仿真（需要 Icarus Verilog）：
+或者也可以使用命令行仿真（需要 Icarus Verilog）：
 
 ```bash
 iverilog -o sim_out -I UART.srcs/sources_1/new \
