@@ -23,7 +23,7 @@ always begin
     clk = ~clk;
 end
 
-// UART 发送任务（含偶校验位）
+// UART 发送任务（含偶校验位，默认115200bps）
 task send_uart_byte;
     input [7:0] data;
     reg parity;
@@ -40,6 +40,27 @@ task send_uart_byte;
         #8680;
         RxD = 1'b1;    // 停止位
         #8680;
+    end
+endtask
+
+// UART 发送任务（可指定位时间，用于不同波特率测试）
+task send_uart_byte_baud;
+    input [7:0] data;
+    input integer bit_time;
+    reg parity;
+    integer i;
+    begin
+        parity = ^data;
+        RxD = 1'b0;
+        #bit_time;
+        for (i = 0; i < 8; i = i + 1) begin
+            RxD = data[i];
+            #bit_time;
+        end
+        RxD = parity;
+        #bit_time;
+        RxD = 1'b1;
+        #bit_time;
     end
 endtask
 
@@ -63,18 +84,22 @@ task send_uart_byte_wrong_parity;
     end
 endtask
 
-// 捕获 Din_Valid 时的 Din 值
+// 捕获 Din_Valid 上升沿时的 Din 值
 reg [7:0] captured_din;
+reg last_Din_Valid;
 always @(posedge clk) begin
-    if (UUT.Din_Valid)
+    last_Din_Valid <= UUT.Din_Valid;
+    if (UUT.Din_Valid && !last_Din_Valid)
         captured_din <= UUT.Din;
 end
 
-// 监控 LEDS 输出
+// 监控 LEDS 输出（仅在变化时打印）
+reg [15:0] last_LEDS;
 always @(posedge clk) begin
-    if (LEDS != 16'h0000) begin
+    if (LEDS != 16'h0000 && LEDS != last_LEDS) begin
         $display("t=%0t: LEDS=0x%h (原始数据:0x%h, 转换后:0x%h)", $time, LEDS, LEDS[15:8], LEDS[7:0]);
     end
+    last_LEDS <= LEDS;
 end
 
 // 验证转换结果
@@ -139,6 +164,8 @@ initial begin
     RxD = 1'b1;
     freq_ctrl = 4'b0101;  // 115200 bps
     captured_din = 8'h00;
+    last_Din_Valid = 0;
+    last_LEDS = 16'h0000;
 
     // ============================================
     // 测试1: 复位功能测试
@@ -310,21 +337,21 @@ initial begin
     $display("测试7: 不同波特率测试");
     $display("==========================================");
 
-    // 切换到9600波特率
+    // 切换到19200波特率 (freq_ctrl=3, Division=326)
     freq_ctrl = 4'b0011;
     #100000;
 
-    // 9600波特率下的位时间 ≈ 104167ns
-    send_uart_byte(8'h55);  // 'U' -> 'u'
+    // 19200波特率: Division=326, 位时间=16*326*10=52160ns
+    send_uart_byte_baud(8'h55, 52160);  // 'U' -> 'u'
     #2000000;
     check_and_count(8'h55, captured_din);
 
-    // 切换到38400波特率
+    // 切换到57600波特率 (freq_ctrl=4, Division=109)
     freq_ctrl = 4'b0100;
     #100000;
 
-    // 38400波特率下的位时间 ≈ 26042ns
-    send_uart_byte(8'h55);  // 'U' -> 'u'
+    // 57600波特率: Division=109, 位时间=16*109*10=17440ns
+    send_uart_byte_baud(8'h55, 17440);  // 'U' -> 'u'
     #500000;
     check_and_count(8'h55, captured_din);
 
