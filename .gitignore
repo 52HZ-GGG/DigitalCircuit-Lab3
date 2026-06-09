@@ -26,3 +26,6 @@ Thumbs.db
 
 #忽略vscode配置文件
 .vscode/
+
+# 实验报告（个人文档，不提交）
+实验报告.md

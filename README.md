@@ -13,7 +13,8 @@
 - **UART 发射器 (UART_Transmitter.v)**：实现并串转换，按起始位+8数据位+偶校验位+停止位格式发送数据。
 - **UART 接收器 (UART_Receiver.v)**：实现串并转换，使用 Bclk16 过采样在 bit 中心采样，支持偶校验检测。
 - **UART 顶层模块 (UART.v)**：集成波特率生成器、发射器和接收器。
-- **回环控制器 (uart_loopback.v)**：接收数据后自动进行大小写转换并回传。
+- **同步 FIFO (uart_fifo.v)**：16 字节深度的同步 FIFO，用于接收端数据缓冲，防止连续发送时数据丢失。
+- **回环控制器 (uart_loopback.v)**：集成 FIFO 缓冲，接收数据后自动进行大小写转换并回传。
 
 ## 文件结构
 
@@ -28,11 +29,13 @@ UART/
 │   │   ├── UART_Transmitter.v          # UART 发射器
 │   │   ├── UART_Receiver.v             # UART 接收器（Bclk16 过采样）
 │   │   ├── UART.v                      # UART 顶层模块
-│   │   └── uart_loopback.v             # 回环控制器（含 LED 调试输出）
+│   │   ├── uart_fifo.v                 # 同步 FIFO（16 字节，接收端缓冲）
+│   │   └── uart_loopback.v             # 回环控制器（含 FIFO 集成 + LED 调试输出）
 │   ├── constrs_1/new/                  # 约束文件
 │   │   └── basys3.xdc                  # Basys3 引脚约束
 │   └── sim_1/new/                      # 仿真测试文件
 │       ├── echo_tb.v                   # 回环功能仿真测试（大小写转换 + 单bit验证）
+│       ├── fifo_echo_tb.v              # FIFO 连续收发测试（多字节无间隔 + 压力测试）
 │       ├── uart2uart_tb.v              # 双向通信仿真测试（含双工模式）
 │       ├── comprehensive_echo_tb.v     # 综合回环测试
 │       ├── UART_BaudGen_tb.v           # 波特率生成器仿真
@@ -85,6 +88,22 @@ UART/
 | LD15~LD8 | 收到的原始数据（latched_data） |
 | LD7~LD0 | 转换后的数据（converted_data） |
 
+### 5. 接收端 FIFO 缓冲
+
+系统在接收器和回环控制器之间集成了一个 16 字节同步 FIFO（`uart_fifo.v`），用于缓冲接收到的数据。这解决了原始串行阻塞式设计在连续发送时丢失数据的问题。
+
+**数据流：**
+
+```
+RxD → UART_Receiver → FIFO → 回环控制器 → UART_Transmitter → TxD
+```
+
+**FIFO 规格：**
+- 深度：16 字节
+- 位宽：8 位
+- 同时读写支持
+- 提供 `full`/`empty`/`data_count` 状态信号
+
 ## 运行方法
 
 ### 1. 创建 Vivado 工程
@@ -109,6 +128,7 @@ UART/
 
 ```bash
 iverilog -o sim_out -I UART.srcs/sources_1/new \
+    UART.srcs/sources_1/new/uart_fifo.v \
     UART.srcs/sources_1/new/UART_Receiver.v \
     UART.srcs/sources_1/new/UART_Transmitter.v \
     UART.srcs/sources_1/new/UART_BaudGen.v \
@@ -116,6 +136,20 @@ iverilog -o sim_out -I UART.srcs/sources_1/new \
     UART.srcs/sources_1/new/uart_loopback.v \
     UART.srcs/sim_1/new/echo_tb.v
 vvp sim_out
+```
+
+运行 FIFO 连续收发测试：
+
+```bash
+iverilog -o sim_fifo -I UART.srcs/sources_1/new \
+    UART.srcs/sources_1/new/uart_fifo.v \
+    UART.srcs/sources_1/new/UART_Receiver.v \
+    UART.srcs/sources_1/new/UART_Transmitter.v \
+    UART.srcs/sources_1/new/UART_BaudGen.v \
+    UART.srcs/sources_1/new/UART.v \
+    UART.srcs/sources_1/new/uart_loopback.v \
+    UART.srcs/sim_1/new/fifo_echo_tb.v
+vvp sim_fifo
 ```
 
 ### 4. 综合、实现、生成比特流
@@ -171,6 +205,7 @@ python serial_debug.py
 | `U` (0x55) | `u` (0x75) | 大写→小写 |
 | `5` (0x35) | `5` (0x35) | 数字不变 |
 | `!` (0x21) | `!` (0x21) | 特殊字符不变 |
+| `HELLO` | `hello` | 连续发送多字节（FIFO 缓冲） |
 
 ## 作者
 
